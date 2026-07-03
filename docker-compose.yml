@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  email-validator:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - EMAILVAL_LOG_LEVEL=INFO
+      - EMAILVAL_LOG_JSON=false
+      - EMAILVAL_DNS_THREAD_POOL_WORKERS=32
+      - EMAILVAL_DNS_TIMEOUT_SECONDS=3.0
+    volumes:
+      - ./app/data:/app/app/data  # allows extending disposable_domains.txt live
+    restart: unless-stopped
