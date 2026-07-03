@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+.env
+*.xlsx
+!tests/fixtures/*.xlsx
+.coverage
+htmlcov/
+.DS_Store
