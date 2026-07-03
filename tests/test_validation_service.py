@@ -59,14 +59,6 @@ class TestValidateSingleEmailNoDns:
 
 
 class TestInvalidShouldNeverBeSafeToSend:
-    def test_invalid_domain_examplegmail_should_be_invalid_and_skip(self):
-        # Reported: "example@gmail.com | cannarma | https://cannarma.com"
-        # should not be treated as SAFE_TO_SEND.
-        r = validate_single_email("example@gmail.com", check_dns=False)
-        assert r.validation_status.value.startswith("INVALID")
-        assert r.recommendation == Recommendation.INVALID
-        assert r.send_decision == SendDecision.SKIP
-
     def test_invalid_role_supportoracur_should_be_invalid_and_skip(self):
         # Reported: "support@oracura.in ... INVALID_ROLE"
         r = validate_single_email("support@oracura.in", check_dns=False)

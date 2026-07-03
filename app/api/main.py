@@ -132,7 +132,18 @@ async def validate_file(
     except NoEmailColumnFoundError as exc:
         raise HTTPException(422, str(exc)) from exc
 
-    emails = df[column].fillna("").astype(str).tolist()
+    # Some users paste row-like strings into a single cell, e.g.
+    #   email@example.com | Name | https://example.com
+    # In that case, validate only the left-most token.
+    def _extract_email_cell(value: str) -> str:
+        raw = (value or "").strip()
+        if "|" in raw:
+            raw = raw.split("|", 1)[0].strip()
+        return raw
+
+    emails = [
+        _extract_email_cell(v) for v in df[column].fillna("").astype(str).tolist()
+    ]
 
     logger.info("Validating %d emails from column '%s' (job=%s)", len(emails), column, job_id)
     results, summary = process_emails_batch(

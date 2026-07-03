@@ -160,8 +160,9 @@ def validate_single_email(
         "FREE_PROVIDER" if free_provider else ("BUSINESS" if business else "GENERAL")
     ))
 
+    is_final_valid = str(status.value).startswith("VALID")
     risk_score = compute_risk_score(
-        syntax_valid=True,
+        syntax_valid=is_final_valid,
         domain_exists=domain_exists if check_dns else True,
         mx_exists=mx_exists if check_dns else True,
         disposable=disposable,

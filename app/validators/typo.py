@@ -27,12 +27,17 @@ def suggest_domain_correction(domain: str) -> str | None:
     if domain in typo_map:
         return typo_map[domain]
 
+    free_providers = set(get_free_providers())
+    # If it's already a known free provider, do not "correct" it.
+    if domain in free_providers:
+        return None
+
     # Fallback: edit-distance against major free providers, only surface a
     # suggestion when it's a *close* miss (distance 1-2) to avoid noisy
     # false positives on legitimate custom domains.
     best_match = None
     best_distance = 3
-    for provider in get_free_providers():
+    for provider in free_providers:
         # cheap length filter before running full edit distance
         if abs(len(provider) - len(domain)) > 2:
             continue

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -74,21 +75,30 @@ def detect_email_column(
 
     matches = [c for c in columns if normalize(c) in candidate_norms]
 
-    if not matches:
-        # Fallback: any column whose normalized name *contains* "email" or "mail"
-        matches = [
-            c for c in columns if "email" in normalize(c) or normalize(c).endswith("mail")
-        ]
+    # Fallback: any column whose normalized name *contains* "email" or "mail".
+    # IMPORTANT: we union this with the primary matches even when the primary
+    # matches are non-empty, so inputs like ["Email Address", "Work Email"]
+    # correctly trigger MultipleEmailColumnsError (as expected by tests).
+    fallback_matches = [
+        c for c in columns if "email" in normalize(c) or normalize(c).endswith("mail")
+    ]
 
-    if not matches:
+    merged = []
+    seen = set()
+    for c in (matches + fallback_matches):
+        if c not in seen:
+            merged.append(c)
+            seen.add(c)
+
+    if not merged:
         raise NoEmailColumnFoundError(
             f"No email column detected among: {columns}. "
             "Supported names include: Email, Email Address, email_id, e-mail, etc."
         )
-    if len(matches) > 1:
-        raise MultipleEmailColumnsError(matches)
+    if len(merged) > 1:
+        raise MultipleEmailColumnsError(merged)
 
-    return matches[0]
+    return merged[0]
 
 
 def build_output_dataframe(
@@ -155,39 +165,67 @@ _STATUS_COLORS = {
 
 def write_output_xlsx(df: pd.DataFrame, output_path: str | Path) -> Path:
     output_path = Path(output_path)
-    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Validation Results")
-        worksheet = writer.sheets["Validation Results"]
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(
+        start_color="4472C4", end_color="4472C4", fill_type="solid"
+    )
 
-        header_font = Font(bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-        for col_idx in range(1, len(df.columns) + 1):
-            cell = worksheet.cell(row=1, column=col_idx)
-            cell.font = header_font
-            cell.fill = header_fill
+    target_path = output_path
+    worksheet = None
 
-        # Auto-size columns (bounded, to avoid pathological widths)
-        for col_idx, col_name in enumerate(df.columns, start=1):
-            max_len = max(
-                [len(str(col_name))] + [len(str(v)) for v in df[col_name].astype(str).head(500)]
+    # Excel often keeps .xlsx files locked while open. If the user passes an
+    # output path that is currently in use, write to a unique fallback filename.
+    try:
+        with pd.ExcelWriter(target_path, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Validation Results")
+            worksheet = writer.sheets["Validation Results"]
+    except PermissionError as exc:
+        if target_path.exists():
+            target_path = target_path.with_name(
+                f"{target_path.stem}_{uuid.uuid4().hex[:8]}{target_path.suffix}"
             )
-            worksheet.column_dimensions[get_column_letter(col_idx)].width = min(
-                max(12, max_len + 2), 45
-            )
+        logger.warning(
+            "Permission denied writing %s (%s). Writing to %s instead.",
+            output_path,
+            exc,
+            target_path,
+        )
+        with pd.ExcelWriter(target_path, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Validation Results")
+            worksheet = writer.sheets["Validation Results"]
 
-        worksheet.freeze_panes = "A2"
+    if worksheet is None:
+        raise RuntimeError("Failed to create worksheet for Excel output.")
 
-        if "Validation Status" in df.columns:
-            status_col_idx = list(df.columns).index("Validation Status") + 1
-            for row_idx in range(2, len(df) + 2):
-                cell = worksheet.cell(row=row_idx, column=status_col_idx)
-                value = str(cell.value or "")
-                for prefix, color in _STATUS_COLORS.items():
-                    if value.startswith(prefix):
-                        cell.fill = PatternFill(
-                            start_color=color, end_color=color, fill_type="solid"
-                        )
-                        break
+    # Formatting (always applied, even in fallback path)
+    for col_idx in range(1, len(df.columns) + 1):
+        cell = worksheet.cell(row=1, column=col_idx)
+        cell.font = header_font
+        cell.fill = header_fill
 
-    logger.info("Wrote %d rows to %s", len(df), output_path)
-    return output_path
+    # Auto-size columns (bounded, to avoid pathological widths)
+    for col_idx, col_name in enumerate(df.columns, start=1):
+        max_len = max(
+            [len(str(col_name))]
+            + [len(str(v)) for v in df[col_name].astype(str).head(500)]
+        )
+        worksheet.column_dimensions[get_column_letter(col_idx)].width = min(
+            max(12, max_len + 2), 45
+        )
+
+    worksheet.freeze_panes = "A2"
+
+    if "Validation Status" in df.columns:
+        status_col_idx = list(df.columns).index("Validation Status") + 1
+        for row_idx in range(2, len(df) + 2):
+            cell = worksheet.cell(row=row_idx, column=status_col_idx)
+            value = str(cell.value or "")
+            for prefix, color in _STATUS_COLORS.items():
+                if value.startswith(prefix):
+                    cell.fill = PatternFill(
+                        start_color=color, end_color=color, fill_type="solid"
+                    )
+                    break
+
+    logger.info("Wrote %d rows to %s", len(df), target_path)
+    return target_path
