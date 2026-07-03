@@ -72,8 +72,15 @@ def compute_deliverability_score(
 def determine_recommendation(
     validation_status: ValidationStatus, risk_score: int
 ) -> Recommendation:
-    if str(validation_status).startswith(("INVALID", "ValidationStatus.INVALID")):
+    """
+    Hard rule: any INVALID_* validation status must never be recommended for sending.
+    Use explicit enum checks to avoid fragile string-prefix behavior.
+    """
+    invalid_prefix = str(validation_status.value).startswith("INVALID_")
+    is_invalid = validation_status in {ValidationStatus.INVALID} or invalid_prefix
+    if is_invalid:
         return Recommendation.INVALID
+
     if risk_score <= 15:
         return Recommendation.SAFE_TO_SEND
     if risk_score <= 35:
